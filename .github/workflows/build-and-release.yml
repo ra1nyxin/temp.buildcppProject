@@ -1,4 +1,4 @@
-name: OS-ImGui Absolute Compatibility Build
+name: OS-ImGui Expert Hotfix Build
 
 on:
   push:
@@ -20,37 +20,46 @@ jobs:
         with:
           arch: x64
 
-      - name: Deep Dependency Sync
+      - name: Advanced Dependency & Code Surgery
         shell: powershell
         run: |
-          # 1. 物理目录结构重建
           New-Item -ItemType Directory -Path "imgui" -Force
-          
-          # 2. 拉取 ImGui v1.89.9 (LTS)
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
-          
-          # 3. [核心修复]：将所有 Backend 扁平化拷贝到 imgui 目录，解决 DX9/DX11 包含问题
           Copy-Item "imgui_repo/*.h" "imgui/" -Force
           Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
           Get-ChildItem -Path "imgui_repo/backends" -File | Copy-Item -Destination "imgui/" -Force
           
-          # 4. MinHook 注入
-          New-Item -ItemType Directory -Path "Minhook" -Force
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
           Copy-Item "minhook_repo/include/*" "Minhook/" -Force
           Copy-Item "minhook_repo/src/*.c" "." -Force
           Copy-Item "minhook_repo/src/*.h" "." -Force
           Copy-Item "minhook_repo/src/hde/*" "." -Force
 
-          # 5. OS-ImGui 源码平铺
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo/OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
+
+          $compatMacros = @"
+          #define ImDrawCornerFlags ImDrawFlags
+          #define ImDrawCornerFlags_All ImDrawFlags_RoundCornersAll
+          #define ImDrawCornerFlags_Top ImDrawFlags_RoundCornersTop
+          #define ImDrawCornerFlags_Bot ImDrawFlags_RoundCornersBottom
+          #define ImDrawCornerFlags_Left ImDrawFlags_RoundCornersLeft
+          #define ImDrawCornerFlags_Right ImDrawFlags_RoundCornersRight
+          #define ImDrawCornerFlags_None ImDrawFlags_RoundCornersNone
+          "@
+          $imguiHeader = Get-Content "imgui/imgui.h"
+          Set-Content -Path "imgui/imgui.h" -Value ($compatMacros + "`n" + $imguiHeader)
+
+          (Get-Content "OS-ImGui.cpp") -replace 'Window->DrawList->AddShadowRect', '// Window->DrawList->AddShadowRect' `
+                                     -replace 'Window->DrawList->AddShadowCircle', '// Window->DrawList->AddShadowCircle' `
+                                     -replace 'ImGui::ItemHoverable\(bb, id, 0\)', 'ImGui::ItemHoverable(bb, id)' `
+                                     | Set-Content "OS-ImGui.cpp"
+
+          Write-Host "[SUCCESS] Code surgery completed. Legacy APIs re-mapped."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: /DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=0 强制开启旧版 API 兼容
-          :: /I. /Iimgui 确保寻找路径全覆盖
           cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /Iimgui /IMinhook ^
           /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL /DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=0 ^
           main.cpp ^
@@ -61,7 +70,7 @@ jobs:
           /link /DLL /OUT:Hex_Internal_Module.dll ^
           user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
 
-      - name: Archive Production Build
+      - name: Archive Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Hex_Internal_Module
