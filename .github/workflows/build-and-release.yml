@@ -1,4 +1,4 @@
-name: OS-ImGui Absolute Path & API Fix
+name: OS-ImGui Regex Surgery Build
 
 on:
   push:
@@ -20,25 +20,26 @@ jobs:
         with:
           arch: x64
 
-      - name: Path-Safe Dependency Integration
+      - name: Regex-Based Code Surgery
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Path "imgui" -Force
-          New-Item -ItemType Directory -Path "Minhook" -Force
-          
+          New-Item -ItemType Directory -Path "imgui", "Minhook" -Force
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
-          Copy-Item "imgui_repo\*.h" "imgui\" -Force
-          Copy-Item "imgui_repo\*.cpp" "imgui\" -Force
-          Copy-Item "imgui_repo\backends\*" "imgui\" -Force
+          Copy-Item "imgui_repo\*.h", "imgui_repo\*.cpp", "imgui_repo\backends\*" -Destination "imgui\" -Force
           
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
           Copy-Item "minhook_repo\include\*" "Minhook\" -Force
-          Copy-Item "minhook_repo\src\*.c" "." -Force
-          Copy-Item "minhook_repo\src\*.h" "." -Force
-          Copy-Item "minhook_repo\src\hde\*" "." -Force
+          Copy-Item "minhook_repo\src\*.c", "minhook_repo\src\*.h", "minhook_repo\src\hde\*" -Destination "." -Force
 
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo\OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
+
+          $osImGuiCpp = Get-Content "OS-ImGui.cpp" -Raw
+          $osImGuiCpp = $osImGuiCpp -replace '(?m)^\s*Window->DrawList->AddShadowRect\(.*?\);', '// AddShadowRect Removed'
+          $osImGuiCpp = $osImGuiCpp -replace '(?m)^\s*Window->DrawList->AddShadowCircle\(.*?\);', '// AddShadowCircle Removed'
+          $osImGuiCpp = $osImGuiCpp -replace 'ImGui::ItemHoverable\s*\(\s*(.*?)\s*,\s*(.*?)\s*,\s*.*?\s*\)', 'ImGui::ItemHoverable($1, $2)'
+          $osImGuiCpp = $osImGuiCpp -replace 'ImDrawCornerFlags\s+rounding_corners', 'ImDrawFlags rounding_corners'
+          Set-Content -Path "OS-ImGui.cpp" -Value $osImGuiCpp
 
           $compatMacros = @"
           #ifndef IMDRAWFLAGS_DEFINED
@@ -55,13 +56,7 @@ jobs:
           $imguiHeader = Get-Content "imgui\imgui.h" -Raw
           Set-Content -Path "imgui\imgui.h" -Value ($compatMacros + "`n" + $imguiHeader)
 
-          (Get-Content "OS-ImGui.cpp") -replace 'Window->DrawList->AddShadowRect', '//' `
-                                     -replace 'Window->DrawList->AddShadowCircle', '//' `
-                                     -replace 'ImGui::ItemHoverable\(bb, id, 0\)', 'ImGui::ItemHoverable(bb, id)' `
-                                     -replace 'ImDrawCornerFlags rounding_corners', 'ImDrawFlags rounding_corners' `
-                                     | Set-Content "OS-ImGui.cpp"
-
-          Write-Host "[SUCCESS] Dependencies and code surgery finalized."
+          Write-Host "[SUCCESS] Regex surgery applied to OS-ImGui.cpp"
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
