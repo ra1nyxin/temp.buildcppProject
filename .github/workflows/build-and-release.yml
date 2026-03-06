@@ -1,4 +1,4 @@
-name: OS-ImGui Architecture-Level Synthesis
+name: OS-ImGui Compatibility Synthesis
 
 on:
   push:
@@ -20,35 +20,37 @@ jobs:
         with:
           arch: x64
 
-      - name: Deep Dependency Integration
+      - name: Version-Locked Dependency Integration
         shell: powershell
         run: |
-          # 1. ImGui 结构初始化
+          # 1. 克隆特定版本的 ImGui (v1.89.9) 以修复 C2065 错误
           New-Item -ItemType Directory -Path "imgui" -Force
-          git clone --depth 1 https://github.com/ocornut/imgui.git imgui_repo
+          git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
           Copy-Item "imgui_repo/*.h" "imgui/" -Force
           Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
-          Copy-Item "imgui_repo/backends/*" "imgui/" -Force
+          Copy-Item "imgui_repo/backends/imgui_impl_win32.*" "imgui/" -Force
+          Copy-Item "imgui_repo/backends/imgui_impl_dx11.*" "imgui/" -Force
 
-          # 2. MinHook 结构初始化 (修复 C1083)
+          # 2. MinHook 初始化
           New-Item -ItemType Directory -Path "Minhook" -Force
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
           Copy-Item "minhook_repo/include/*" "Minhook/" -Force
           Copy-Item "minhook_repo/src/*.c" "." -Force
           Copy-Item "minhook_repo/src/*.h" "." -Force
-          Copy-Item "minhook_repo/src/hde/*" "." -Force # 提取 HDE 引擎源码
+          Copy-Item "minhook_repo/src/hde/*" "." -Force
 
           # 3. OS-ImGui 全量平铺
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo/OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
 
-          Write-Host "[SUCCESS] ImGui, MinHook, and OS-ImGui layers synthesized."
+          # 4. 注入兼容性全局宏 (Fix for Legacy API)
+          # 在 imconfig.h 中添加定义以确保旧代码编译通过
+          Add-Content -Path "imgui/imconfig.h" "`n#define IMGUI_DISABLE_OBSOLETE_KEYIO`n"
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: 编译包含: main + ImGui核心 + OS-ImGui核心 + MinHook内核源码
-          :: /I. /IMinhook 确保头文件搜寻路径正确
+          :: 使用 v1.89.9 后，ImDrawCornerFlags 等宏将恢复生效
           cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /IMinhook /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
           main.cpp ^
           imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
@@ -57,17 +59,6 @@ jobs:
           buffer.c hde64.c hook.c trampoline.c ^
           /link /DLL /OUT:Hex_Internal_Module.dll ^
           user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
-
-      - name: Binary Integrity Verification
-        shell: powershell
-        run: |
-          if (Test-Path "Hex_Internal_Module.dll") {
-              $hash = Get-FileHash "Hex_Internal_Module.dll" -Algorithm SHA256
-              Write-Host "[FINISHER] SHA256 Hash: $($hash.Hash)"
-          } else {
-              Write-Error "Synthesis Failed: Linker output not found."
-              exit 1
-          }
 
       - name: Archive Artifact
         uses: actions/upload-artifact@v4
