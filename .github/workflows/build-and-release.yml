@@ -1,4 +1,4 @@
-name: OS-ImGui Regex Surgery Build
+name: OS-ImGui Ultimate Hotfix
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
         with:
           arch: x64
 
-      - name: Regex-Based Code Surgery
+      - name: Nuclear Code Surgery
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path "imgui", "Minhook" -Force
@@ -34,29 +34,33 @@ jobs:
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo\OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
 
-          $osImGuiCpp = Get-Content "OS-ImGui.cpp" -Raw
-          $osImGuiCpp = $osImGuiCpp -replace '(?m)^\s*Window->DrawList->AddShadowRect\(.*?\);', '// AddShadowRect Removed'
-          $osImGuiCpp = $osImGuiCpp -replace '(?m)^\s*Window->DrawList->AddShadowCircle\(.*?\);', '// AddShadowCircle Removed'
-          $osImGuiCpp = $osImGuiCpp -replace 'ImGui::ItemHoverable\s*\(\s*(.*?)\s*,\s*(.*?)\s*,\s*.*?\s*\)', 'ImGui::ItemHoverable($1, $2)'
-          $osImGuiCpp = $osImGuiCpp -replace 'ImDrawCornerFlags\s+rounding_corners', 'ImDrawFlags rounding_corners'
-          Set-Content -Path "OS-ImGui.cpp" -Value $osImGuiCpp
-
-          $compatMacros = @"
-          #ifndef IMDRAWFLAGS_DEFINED
-          #define IMDRAWFLAGS_DEFINED
+          $file = "OS-ImGui.cpp"
+          $content = Get-Content $file
+          
+          $newContent = foreach ($line in $content) {
+              if ($line -match "AddShadowRect" -or $line -match "AddShadowCircle") {
+                  "// [HOTFIX] " + $line
+              }
+              # 修正 ItemHoverable: 强制改为官方 v1.89 接受的 3 参数格式 (补一个 0)
+              elseif ($line -match "ImGui::ItemHoverable") {
+                  $line -replace 'ImGui::ItemHoverable\(([^,]+),\s*([^,)]+)\)', 'ImGui::ItemHoverable($1, $2, 0)'
+              }
+              # 修正 CornerFlags
+              else {
+                  $line -replace "ImDrawCornerFlags", "ImDrawFlags" `
+                        -replace "ImDrawCornerFlags_All", "ImDrawFlags_RoundCornersAll" `
+                        -replace "ImDrawCornerFlags_Top", "ImDrawFlags_RoundCornersTop" `
+                        -replace "ImDrawCornerFlags_Bot", "ImDrawFlags_RoundCornersBottom"
+              }
+          }
+          $newContent | Set-Content $file
+          $compat = @"
           #define ImDrawCornerFlags ImDrawFlags
           #define ImDrawCornerFlags_All ImDrawFlags_RoundCornersAll
-          #define ImDrawCornerFlags_Top ImDrawFlags_RoundCornersTop
-          #define ImDrawCornerFlags_Bot ImDrawFlags_RoundCornersBottom
-          #define ImDrawCornerFlags_Left ImDrawFlags_RoundCornersLeft
-          #define ImDrawCornerFlags_Right ImDrawFlags_RoundCornersRight
-          #define ImDrawCornerFlags_None ImDrawFlags_RoundCornersNone
-          #endif
           "@
-          $imguiHeader = Get-Content "imgui\imgui.h" -Raw
-          Set-Content -Path "imgui\imgui.h" -Value ($compatMacros + "`n" + $imguiHeader)
+          Add-Content -Path "imgui\imgui.h" -Value $compat
 
-          Write-Host "[SUCCESS] Regex surgery applied to OS-ImGui.cpp"
+          Write-Host "[SUCCESS] Nuclear surgery applied."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
