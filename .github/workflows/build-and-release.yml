@@ -23,24 +23,17 @@ jobs:
       - name: Deep Dependency Integration
         shell: powershell
         run: |
-          # 1. 初始化目录
           New-Item -ItemType Directory -Path "imgui", "Minhook" -Force
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
-          
-          # 2. 拷贝 ImGui 核心及 DX9, DX11 后端 (解决 LNK2019)
           Copy-Item "imgui_repo\*.h", "imgui_repo\*.cpp" -Destination "imgui\" -Force
           Get-ChildItem -Path "imgui_repo\backends" -Filter "imgui_impl_dx9*" | Copy-Item -Destination "imgui\" -Force
           Get-ChildItem -Path "imgui_repo\backends" -Filter "imgui_impl_dx11*" | Copy-Item -Destination "imgui\" -Force
           Get-ChildItem -Path "imgui_repo\backends" -Filter "imgui_impl_win32*" | Copy-Item -Destination "imgui\" -Force
-          
-          # 3. MinHook 注入
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
           Copy-Item "minhook_repo\include\*" "Minhook\" -Force
           Copy-Item "minhook_repo\src\*.c", "minhook_repo\src\*.h", "minhook_repo\src\hde\*" -Destination "." -Force
-
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo\OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
-
           $path = "OS-ImGui.cpp"
           $content = Get-Content $path -Raw
           $content = $content -replace 'window->DrawList->AddShadowRect', '//' `
@@ -50,7 +43,6 @@ jobs:
                              -replace 'const bool hovered = ImGui::ItemHoverable\(frame_bb, id\);', 'const bool hovered = ImGui::ItemHoverable(frame_bb, id, g.LastItemData.InFlags);' `
                              -replace 'ImGuiItemStatusFlags_FocusedByTabbing', 'ImGuiItemFlags_Inputable'
           Set-Content -Path $path -Value $content
-
           $compat = "#define ImDrawCornerFlags int`n#define ImDrawCornerFlags_All ImDrawFlags_RoundCornersAll"
           Add-Content -Path "imgui\imgui.h" -Value $compat
 
