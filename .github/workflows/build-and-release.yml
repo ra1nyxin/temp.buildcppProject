@@ -1,4 +1,4 @@
-name: OS-ImGui Compatibility Synthesis
+name: OS-ImGui Absolute Compatibility Build
 
 on:
   push:
@@ -20,18 +20,21 @@ jobs:
         with:
           arch: x64
 
-      - name: Version-Locked Dependency Integration
+      - name: Deep Dependency Sync
         shell: powershell
         run: |
-          # 1. 克隆特定版本的 ImGui (v1.89.9) 以修复 C2065 错误
+          # 1. 物理目录结构重建
           New-Item -ItemType Directory -Path "imgui" -Force
+          
+          # 2. 拉取 ImGui v1.89.9 (LTS)
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
+          
+          # 3. [核心修复]：将所有 Backend 扁平化拷贝到 imgui 目录，解决 DX9/DX11 包含问题
           Copy-Item "imgui_repo/*.h" "imgui/" -Force
           Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
-          Copy-Item "imgui_repo/backends/imgui_impl_win32.*" "imgui/" -Force
-          Copy-Item "imgui_repo/backends/imgui_impl_dx11.*" "imgui/" -Force
-
-          # 2. MinHook 初始化
+          Get-ChildItem -Path "imgui_repo/backends" -File | Copy-Item -Destination "imgui/" -Force
+          
+          # 4. MinHook 注入
           New-Item -ItemType Directory -Path "Minhook" -Force
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
           Copy-Item "minhook_repo/include/*" "Minhook/" -Force
@@ -39,19 +42,17 @@ jobs:
           Copy-Item "minhook_repo/src/*.h" "." -Force
           Copy-Item "minhook_repo/src/hde/*" "." -Force
 
-          # 3. OS-ImGui 全量平铺
+          # 5. OS-ImGui 源码平铺
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo/OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
-
-          # 4. 注入兼容性全局宏 (Fix for Legacy API)
-          # 在 imconfig.h 中添加定义以确保旧代码编译通过
-          Add-Content -Path "imgui/imconfig.h" "`n#define IMGUI_DISABLE_OBSOLETE_KEYIO`n"
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: 使用 v1.89.9 后，ImDrawCornerFlags 等宏将恢复生效
-          cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /IMinhook /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
+          :: /DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=0 强制开启旧版 API 兼容
+          :: /I. /Iimgui 确保寻找路径全覆盖
+          cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /Iimgui /IMinhook ^
+          /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL /DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=0 ^
           main.cpp ^
           imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
           imgui/imgui_impl_win32.cpp imgui/imgui_impl_dx11.cpp ^
@@ -60,7 +61,7 @@ jobs:
           /link /DLL /OUT:Hex_Internal_Module.dll ^
           user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
 
-      - name: Archive Artifact
+      - name: Archive Production Build
         uses: actions/upload-artifact@v4
         with:
           name: Hex_Internal_Module
