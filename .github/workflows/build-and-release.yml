@@ -1,10 +1,8 @@
-name: OS-ImGui Expert Synthesis
+name: OS-ImGui Expert Synthesis v2.1
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -22,28 +20,35 @@ jobs:
         with:
           arch: x64
 
-      - name: Dynamic Dependency Injection
+      - name: Advanced Dependency Structuring
         shell: powershell
         run: |
-          # 1. 克隆 ImGui 核心
+          # 1. 创建符合 #include "imgui/xxx.h" 要求的物理结构
+          New-Item -ItemType Directory -Path "imgui" -Force
+          
+          # 2. 拉取 ImGui 并填充到 imgui 文件夹
           git clone --depth 1 https://github.com/ocornut/imgui.git imgui_repo
+          Copy-Item "imgui_repo/*.h" "imgui/" -Force
+          Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
+          # 同时拷贝 Backends，OS-ImGui 可能需要它们
+          Copy-Item "imgui_repo/backends/imgui_impl_win32.*" "imgui/" -Force
+          Copy-Item "imgui_repo/backends/imgui_impl_dx11.*" "imgui/" -Force
           
-          # 2. 克隆 OS-ImGui 框架
+          # 3. 拉取 OS-ImGui 并提取核心文件到根目录
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
+          Get-ChildItem -Path "osimgui_repo/OS-ImGui" -Include *.h, *.cpp -Recurse | Copy-Item -Destination "." -Force
           
-          # 3. 递归提取所有头文件和源文件到当前目录 (Flatten Structure)
-          Get-ChildItem -Path "imgui_repo", "osimgui_repo" -Filter *.h -Recurse | Copy-Item -Destination "." -Force
-          Get-ChildItem -Path "imgui_repo", "osimgui_repo" -Filter *.cpp -Recurse | Copy-Item -Destination "." -Force
-          
-          Write-Host "[INFO] Dependencies Flattened."
+          Write-Host "[SUCCESS] Directory structure synthesized."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: 现在 cl.exe 已经位于 PATH 中，且 INCLUDE/LIB 已初始化
+          :: /I. -> 寻找根目录下的 OS-ImGui.h
+          :: /I./imgui -> 辅助寻找，但主要是为了让 "imgui/imgui.h" 路径生效
           cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
           main.cpp ^
-          imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp imgui_demo.cpp ^
+          imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
+          imgui/imgui_impl_win32.cpp imgui/imgui_impl_dx11.cpp ^
           OS-ImGui.cpp OS-ImGui_External.cpp ^
           /link /DLL /OUT:Hex_Internal_Module.dll ^
           user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
@@ -53,9 +58,9 @@ jobs:
         run: |
           if (Test-Path "Hex_Internal_Module.dll") {
               $hash = Get-FileHash "Hex_Internal_Module.dll" -Algorithm SHA256
-              Write-Host "[SUCCESS] SHA256: $($hash.Hash)"
+              Write-Host "[FINISHER] SHA256: $($hash.Hash)"
           } else {
-              Write-Error "DLL Synthesis Failed."
+              Write-Error "DLL Generation Failed."
               exit 1
           }
 
