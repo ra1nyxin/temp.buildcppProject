@@ -1,4 +1,4 @@
-name: OS-ImGui Automation Build
+name: OS-ImGui Expert Synthesis
 
 on:
   push:
@@ -17,52 +17,50 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Inject Expert Dependencies
+      - name: Setup MSVC Toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Dynamic Dependency Injection
         shell: powershell
         run: |
-          # 1. 克隆 ImGui 核心 (Docking分支通常兼容性更好)
+          # 1. 克隆 ImGui 核心
           git clone --depth 1 https://github.com/ocornut/imgui.git imgui_repo
           
           # 2. 克隆 OS-ImGui 框架
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           
-          # 3. 物理拓扑重构：将所有必要的源码移动到根目录，方便 cl.exe 包含
-          # 提取 ImGui 核心文件
-          Copy-Item "imgui_repo/*.h" "."
-          Copy-Item "imgui_repo/*.cpp" "."
+          # 3. 递归提取所有头文件和源文件到当前目录 (Flatten Structure)
+          Get-ChildItem -Path "imgui_repo", "osimgui_repo" -Filter *.h -Recurse | Copy-Item -Destination "." -Force
+          Get-ChildItem -Path "imgui_repo", "osimgui_repo" -Filter *.cpp -Recurse | Copy-Item -Destination "." -Force
           
-          # 提取 OS-ImGui 核心文件 (注意其仓库层级在 OS-ImGui/OS-ImGui/)
-          Copy-Item "osimgui_repo/OS-ImGui/OS-ImGui.h" "."
-          Copy-Item "osimgui_repo/OS-ImGui/OS-ImGui.cpp" "."
-          Copy-Item "osimgui_repo/OS-ImGui/OS-ImGui_Struct.h" "."
-          Copy-Item "osimgui_repo/OS-ImGui/OS-ImGui_External.h" "."
-          Copy-Item "osimgui_repo/OS-ImGui/OS-ImGui_External.cpp" "."
-
-      - name: Setup MSVC Toolchain
-        uses: microsoft/setup-msbuild@v2
+          Write-Host "[INFO] Dependencies Flattened."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: 直接调用编译器进行全量编译
-          :: /O2: 速度优化 /MT: 静态链接 /std:c++17: 现代标准
-          :: 包含 main.cpp, imgui*.cpp, OS-ImGui*.cpp
+          :: 现在 cl.exe 已经位于 PATH 中，且 INCLUDE/LIB 已初始化
           cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
-          main.cpp imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp ^
+          main.cpp ^
+          imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp imgui_demo.cpp ^
           OS-ImGui.cpp OS-ImGui_External.cpp ^
           /link /DLL /OUT:Hex_Internal_Module.dll ^
           user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
 
-      - name: Archive Production Build
+      - name: Binary Integrity Verification
+        shell: powershell
+        run: |
+          if (Test-Path "Hex_Internal_Module.dll") {
+              $hash = Get-FileHash "Hex_Internal_Module.dll" -Algorithm SHA256
+              Write-Host "[SUCCESS] SHA256: $($hash.Hash)"
+          } else {
+              Write-Error "DLL Synthesis Failed."
+              exit 1
+          }
+
+      - name: Archive Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Synthesized-DLL
+          name: Hex_Internal_Module
           path: Hex_Internal_Module.dll
-
-      - name: Auto-Release (on tag or manual)
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-        with:
-          files: Hex_Internal_Module.dll
-          tag_name: build-${{ github.run_number }}
-          body: "Automated technical synthesis of Hex* module."
