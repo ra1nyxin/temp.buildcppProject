@@ -1,0 +1,62 @@
+name: "Hex* Automated Tech Synthesis"
+
+on: 
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  synthesis:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: "Clone Repository"
+        uses: actions/checkout@v4
+
+      - name: "Inject Dependencies (ImGui & OS-ImGui)"
+        shell: powershell
+        run: |
+          # 1. 拉取 ImGui 官方核心库
+          git clone --depth 1 https://github.com/ocornut/imgui.git _deps/imgui
+          
+          # 2. 拉取 ImGui DX11/Win32 后端 (main.cpp 依赖)
+          Copy-Item "_deps/imgui/backends/imgui_impl_dx11.*" "."
+          Copy-Item "_deps/imgui/backends/imgui_impl_win32.*" "."
+          Copy-Item "_deps/imgui/*.h" "."
+          Copy-Item "_deps/imgui/*.cpp" "."
+
+          # 3. 动态获取 OS-ImGui 框架头文件 
+          # 注意：此处使用公共镜像地址，确保 OS-ImGui_Struct.h 和 OS-ImGui.h 存在
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/u0xk/OS-ImGui/main/OS-ImGui/OS-ImGui.h" -OutFile "OS-ImGui.h"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/u0xk/OS-ImGui/main/OS-ImGui/OS-ImGui_Struct.h" -OutFile "OS-ImGui_Struct.h"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/u0xk/OS-ImGui/main/OS-ImGui/OS-ImGui.cpp" -OutFile "OS-ImGui.cpp"
+
+      - name: "Expert-Level Compilation (MSVC)"
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          
+          :: 编译所有核心组件
+          :: /MT: 静态链接运行库以实现零依赖分发
+          :: /O2: 极致性能优化
+          cl.exe /nologo /O2 /MT /W3 /std:c++17 /EHsc ^
+          /DUNICODE /D_UNICODE /D_USRDLL /D_WINDLL /DOSIMGUI_INTERNAL ^
+          main.cpp OS-ImGui.cpp imgui*.cpp ^
+          /I. /I./_deps/imgui ^
+          /link /DLL /OUT:InternalModule.dll ^
+          user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib shell32.lib
+
+      - name: "Verification & Artifact Upload"
+        uses: actions/upload-artifact@v4
+        with:
+          name: Synthesized-Binary
+          path: InternalModule.dll
+
+      - name: "Automated Release"
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, 'release')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: InternalModule.dll
+          tag_name: v1.0.${{ github.run_number }}
