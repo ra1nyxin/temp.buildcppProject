@@ -1,4 +1,4 @@
-name: OS-ImGui Ultimate Hotfix
+name: OS-ImGui Absolute Fix
 
 on:
   push:
@@ -20,9 +20,10 @@ jobs:
         with:
           arch: x64
 
-      - name: Nuclear Code Surgery
+      - name: Surgical Code Reconstruction
         shell: powershell
         run: |
+          # 1. 依赖拉取
           New-Item -ItemType Directory -Path "imgui", "Minhook" -Force
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
           Copy-Item "imgui_repo\*.h", "imgui_repo\*.cpp", "imgui_repo\backends\*" -Destination "imgui\" -Force
@@ -34,39 +35,51 @@ jobs:
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo\OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
 
-          $file = "OS-ImGui.cpp"
-          $content = Get-Content $file
-          
-          $newContent = foreach ($line in $content) {
-              if ($line -match "AddShadowRect" -or $line -match "AddShadowCircle") {
-                  "// [HOTFIX] " + $line
-              }
-              # 修正 ItemHoverable: 强制改为官方 v1.89 接受的 3 参数格式 (补一个 0)
-              elseif ($line -match "ImGui::ItemHoverable") {
-                  $line -replace 'ImGui::ItemHoverable\(([^,]+),\s*([^,)]+)\)', 'ImGui::ItemHoverable($1, $2, 0)'
-              }
-              # 修正 CornerFlags
-              else {
-                  $line -replace "ImDrawCornerFlags", "ImDrawFlags" `
-                        -replace "ImDrawCornerFlags_All", "ImDrawFlags_RoundCornersAll" `
-                        -replace "ImDrawCornerFlags_Top", "ImDrawFlags_RoundCornersTop" `
-                        -replace "ImDrawCornerFlags_Bot", "ImDrawFlags_RoundCornersBottom"
-              }
-          }
-          $newContent | Set-Content $file
+          # 2. [核心手术] 重写 OS-ImGui.cpp 以兼容官方 ImGui
+          $path = "OS-ImGui.cpp"
+          $content = Get-Content $path -Raw
+
+          # A. 屏蔽官方不存在的 Shadow 函数
+          $content = $content -replace 'window->DrawList->AddShadowRect', '// [Fixed] window->DrawList->AddShadowRect'
+          $content = $content -replace 'DrawList->AddShadowRect', '// [Fixed] DrawList->AddShadowRect'
+          $content = $content -replace 'window->DrawList->AddShadowCircle', '// [Fixed] window->DrawList->AddShadowCircle'
+          $content = $content -replace 'DrawList->AddShadowCircle', '// [Fixed] DrawList->AddShadowCircle'
+
+          # B. 修正 ItemHoverable (v1.89 需要 3 个参数，且涉及 status flags)
+          $content = $content -replace 'const bool hovered = ImGui::ItemHoverable\(frame_bb, id\);', 'const bool hovered = ImGui::ItemHoverable(frame_bb, id, g.LastItemData.InFlags);'
+          $content = $content -replace 'ImGuiItemStatusFlags_FocusedByTabbing', 'ImGuiItemFlags_Inputable'
+
+          # C. 修正极其复杂的旧版圆角逻辑 (47-53行)
+          # 官方 AddRect 已经自带了圆角处理，我们直接简化它以通过编译
+          $fixRounding = @"
+          ImDrawFlags rounding_corners = ImDrawFlags_RoundCornersAll;
+          ImVec2 a = Pos.ToImVec2();
+          ImVec2 b = { Pos.x + Size.x, Pos.y + Size.y };
+          // Rounding logic simplified for compatibility
+          "@
+          $content = $content -replace 'ImDrawCornerFlags rounding_corners = ImDrawCornerFlags_All;[\s\S]*?if \(Rounding <= 0\.0f', ($fixRounding + "`n        if (Rounding <= 0.0f")
+
+          Set-Content -Path $path -Value $content
+
+          # 3. 注入全局兼容宏到 imgui.h
           $compat = @"
-          #define ImDrawCornerFlags ImDrawFlags
+          #define ImDrawCornerFlags int
           #define ImDrawCornerFlags_All ImDrawFlags_RoundCornersAll
+          #define ImDrawCornerFlags_Top ImDrawFlags_RoundCornersTop
+          #define ImDrawCornerFlags_Bot ImDrawFlags_RoundCornersBottom
+          #define ImDrawCornerFlags_Left ImDrawFlags_RoundCornersLeft
+          #define ImDrawCornerFlags_Right ImDrawFlags_RoundCornersRight
           "@
           Add-Content -Path "imgui\imgui.h" -Value $compat
 
-          Write-Host "[SUCCESS] Nuclear surgery applied."
+          Write-Host "[SUCCESS] OS-ImGui.cpp has been surgically repaired."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
+          :: 强制定义 IMGUI_DEFINE_MATH_OPERATORS 以支持代码中的 Vec2 运算
           cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /Iimgui /IMinhook ^
-          /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL /DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=0 ^
+          /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL /DIMGUI_DEFINE_MATH_OPERATORS ^
           main.cpp ^
           imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
           imgui/imgui_impl_win32.cpp imgui/imgui_impl_dx11.cpp ^
