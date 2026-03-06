@@ -1,4 +1,4 @@
-name: OS-ImGui Final Linkage Fix
+name: OS-ImGui Full Linkage Synthesis
 
 on:
   push:
@@ -20,13 +20,20 @@ jobs:
         with:
           arch: x64
 
-      - name: Dependency and Surgery (v2.7)
+      - name: Deep Dependency Integration
         shell: powershell
         run: |
+          # 1. 初始化目录
           New-Item -ItemType Directory -Path "imgui", "Minhook" -Force
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
-          Copy-Item "imgui_repo\*.h", "imgui_repo\*.cpp", "imgui_repo\backends\*" -Destination "imgui\" -Force
           
+          # 2. 拷贝 ImGui 核心及 DX9, DX11 后端 (解决 LNK2019)
+          Copy-Item "imgui_repo\*.h", "imgui_repo\*.cpp" -Destination "imgui\" -Force
+          Get-ChildItem -Path "imgui_repo\backends" -Filter "imgui_impl_dx9*" | Copy-Item -Destination "imgui\" -Force
+          Get-ChildItem -Path "imgui_repo\backends" -Filter "imgui_impl_dx11*" | Copy-Item -Destination "imgui\" -Force
+          Get-ChildItem -Path "imgui_repo\backends" -Filter "imgui_impl_win32*" | Copy-Item -Destination "imgui\" -Force
+          
+          # 3. MinHook 注入
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
           Copy-Item "minhook_repo\include\*" "Minhook\" -Force
           Copy-Item "minhook_repo\src\*.c", "minhook_repo\src\*.h", "minhook_repo\src\hde\*" -Destination "." -Force
@@ -42,9 +49,6 @@ jobs:
                              -replace 'DrawList->AddShadowCircle', '//' `
                              -replace 'const bool hovered = ImGui::ItemHoverable\(frame_bb, id\);', 'const bool hovered = ImGui::ItemHoverable(frame_bb, id, g.LastItemData.InFlags);' `
                              -replace 'ImGuiItemStatusFlags_FocusedByTabbing', 'ImGuiItemFlags_Inputable'
-          
-          $fixRounding = "ImDrawFlags rounding_corners = ImDrawFlags_RoundCornersAll;`nImVec2 a = Pos.ToImVec2();`nImVec2 b = { Pos.x + Size.x, Pos.y + Size.y };"
-          $content = $content -replace 'ImDrawCornerFlags rounding_corners = ImDrawCornerFlags_All;[\s\S]*?if \(Rounding <= 0\.0f', ($fixRounding + "`n        if (Rounding <= 0.0f")
           Set-Content -Path $path -Value $content
 
           $compat = "#define ImDrawCornerFlags int`n#define ImDrawCornerFlags_All ImDrawFlags_RoundCornersAll"
@@ -53,15 +57,15 @@ jobs:
       - name: Technical Synthesis (CL Compilation & Link)
         shell: cmd
         run: |
-          cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /Iimgui /IMinhook ^
+          cl.exe /nologo /O2 /MT /W3 /EHsc /std:c++17 /I. /Iimgui /IMinhook ^
           /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL /DIMGUI_DEFINE_MATH_OPERATORS ^
           main.cpp ^
           imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
-          imgui/imgui_impl_win32.cpp imgui/imgui_impl_dx11.cpp ^
+          imgui/imgui_impl_win32.cpp imgui/imgui_impl_dx11.cpp imgui/imgui_impl_dx9.cpp ^
           OS-ImGui*.cpp ^
           buffer.c hde64.c hook.c trampoline.c ^
           /link /DLL /OUT:Hex_Internal_Module.dll ^
-          user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
+          user32.lib gdi32.lib d3d9.lib d3d11.lib d3dcompiler.lib dwmapi.lib
 
       - name: Archive Artifact
         uses: actions/upload-artifact@v4
