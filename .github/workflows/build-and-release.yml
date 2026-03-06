@@ -1,4 +1,4 @@
-name: OS-ImGui Absolute Synthesis v2.2
+name: OS-ImGui Architecture-Level Synthesis
 
 on:
   push:
@@ -20,36 +20,41 @@ jobs:
         with:
           arch: x64
 
-      - name: Robust Dependency Injection
+      - name: Deep Dependency Integration
         shell: powershell
         run: |
-          # 1. 创建 imgui 目录并全量拉取
+          # 1. ImGui 结构初始化
           New-Item -ItemType Directory -Path "imgui" -Force
           git clone --depth 1 https://github.com/ocornut/imgui.git imgui_repo
-          
-          # 拷贝 ImGui 核心及其所有后端 (含 .h, .cpp, .inl)
           Copy-Item "imgui_repo/*.h" "imgui/" -Force
           Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
           Copy-Item "imgui_repo/backends/*" "imgui/" -Force
-          
-          # 2. 拉取 OS-ImGui
+
+          # 2. MinHook 结构初始化 (修复 C1083)
+          New-Item -ItemType Directory -Path "Minhook" -Force
+          git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
+          Copy-Item "minhook_repo/include/*" "Minhook/" -Force
+          Copy-Item "minhook_repo/src/*.c" "." -Force
+          Copy-Item "minhook_repo/src/*.h" "." -Force
+          Copy-Item "minhook_repo/src/hde/*" "." -Force # 提取 HDE 引擎源码
+
+          # 3. OS-ImGui 全量平铺
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
-          
-          # 3. [关键修复]：递归查找所有文件并平铺到根目录，确保 .hpp 和子文件夹文件被提取
           Get-ChildItem -Path "osimgui_repo/OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
-          
-          Write-Host "[SUCCESS] Flattened OS-ImGui structure. Verified .hpp presence."
+
+          Write-Host "[SUCCESS] ImGui, MinHook, and OS-ImGui layers synthesized."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: 显式包含所有必需的源文件
-          :: 编译器在遇到 #include "OS-ImGui_Exception.hpp" 时会在当前目录寻找
-          cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
+          :: 编译包含: main + ImGui核心 + OS-ImGui核心 + MinHook内核源码
+          :: /I. /IMinhook 确保头文件搜寻路径正确
+          cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /IMinhook /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
           main.cpp ^
           imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
           imgui/imgui_impl_win32.cpp imgui/imgui_impl_dx11.cpp ^
           OS-ImGui.cpp OS-ImGui_External.cpp ^
+          buffer.c hde64.c hook.c trampoline.c ^
           /link /DLL /OUT:Hex_Internal_Module.dll ^
           user32.lib gdi32.lib d3d11.lib d3dcompiler.lib dwmapi.lib
 
@@ -58,9 +63,9 @@ jobs:
         run: |
           if (Test-Path "Hex_Internal_Module.dll") {
               $hash = Get-FileHash "Hex_Internal_Module.dll" -Algorithm SHA256
-              Write-Host "[FINISHER] SHA256: $($hash.Hash)"
+              Write-Host "[FINISHER] SHA256 Hash: $($hash.Hash)"
           } else {
-              Write-Error "Critical: Compilation failed."
+              Write-Error "Synthesis Failed: Linker output not found."
               exit 1
           }
 
