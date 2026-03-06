@@ -1,4 +1,4 @@
-name: OS-ImGui Expert Synthesis v2.1
+name: OS-ImGui Full-Backend Synthesis
 
 on:
   push:
@@ -20,31 +20,30 @@ jobs:
         with:
           arch: x64
 
-      - name: Advanced Dependency Structuring
+      - name: Comprehensive Dependency Injection
         shell: powershell
         run: |
-          # 1. 创建符合 #include "imgui/xxx.h" 要求的物理结构
+          # 1. 创建 imgui 物理目录
           New-Item -ItemType Directory -Path "imgui" -Force
           
-          # 2. 拉取 ImGui 并填充到 imgui 文件夹
+          # 2. 拉取 ImGui
           git clone --depth 1 https://github.com/ocornut/imgui.git imgui_repo
+          
+          # 3. 全量拷贝：核心文件 + 所有 Backends (解决 DX9/DX10 等头文件缺失)
           Copy-Item "imgui_repo/*.h" "imgui/" -Force
           Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
-          # 同时拷贝 Backends，OS-ImGui 可能需要它们
-          Copy-Item "imgui_repo/backends/imgui_impl_win32.*" "imgui/" -Force
-          Copy-Item "imgui_repo/backends/imgui_impl_dx11.*" "imgui/" -Force
+          Copy-Item "imgui_repo/backends/*" "imgui/" -Force
           
-          # 3. 拉取 OS-ImGui 并提取核心文件到根目录
+          # 4. 拉取 OS-ImGui 并提取核心文件到根目录
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
           Get-ChildItem -Path "osimgui_repo/OS-ImGui" -Include *.h, *.cpp -Recurse | Copy-Item -Destination "." -Force
           
-          Write-Host "[SUCCESS] Directory structure synthesized."
+          Write-Host "[SUCCESS] All headers (including DX9/DX11/Win32) are now in ./imgui/"
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
         run: |
-          :: /I. -> 寻找根目录下的 OS-ImGui.h
-          :: /I./imgui -> 辅助寻找，但主要是为了让 "imgui/imgui.h" 路径生效
+          :: 注意：我们只编译 DX11 和 Win32 的源码，但头文件目录包含所有后端
           cl.exe /nologo /O2 /MT /W3 /std:c++17 /I. /DUNICODE /D_UNICODE /DOSIMGUI_INTERNAL ^
           main.cpp ^
           imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp ^
@@ -60,7 +59,7 @@ jobs:
               $hash = Get-FileHash "Hex_Internal_Module.dll" -Algorithm SHA256
               Write-Host "[FINISHER] SHA256: $($hash.Hash)"
           } else {
-              Write-Error "DLL Generation Failed."
+              Write-Error "DLL Synthesis failed at link time."
               exit 1
           }
 
