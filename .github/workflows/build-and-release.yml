@@ -1,4 +1,4 @@
-name: OS-ImGui Expert Hotfix Build
+name: OS-ImGui Absolute Path & API Fix
 
 on:
   push:
@@ -20,25 +20,29 @@ jobs:
         with:
           arch: x64
 
-      - name: Advanced Dependency & Code Surgery
+      - name: Path-Safe Dependency Integration
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path "imgui" -Force
+          New-Item -ItemType Directory -Path "Minhook" -Force
+          
           git clone --depth 1 --branch v1.89.9 https://github.com/ocornut/imgui.git imgui_repo
-          Copy-Item "imgui_repo/*.h" "imgui/" -Force
-          Copy-Item "imgui_repo/*.cpp" "imgui/" -Force
-          Get-ChildItem -Path "imgui_repo/backends" -File | Copy-Item -Destination "imgui/" -Force
+          Copy-Item "imgui_repo\*.h" "imgui\" -Force
+          Copy-Item "imgui_repo\*.cpp" "imgui\" -Force
+          Copy-Item "imgui_repo\backends\*" "imgui\" -Force
           
           git clone --depth 1 https://github.com/TsudaKageyu/minhook.git minhook_repo
-          Copy-Item "minhook_repo/include/*" "Minhook/" -Force
-          Copy-Item "minhook_repo/src/*.c" "." -Force
-          Copy-Item "minhook_repo/src/*.h" "." -Force
-          Copy-Item "minhook_repo/src/hde/*" "." -Force
+          Copy-Item "minhook_repo\include\*" "Minhook\" -Force
+          Copy-Item "minhook_repo\src\*.c" "." -Force
+          Copy-Item "minhook_repo\src\*.h" "." -Force
+          Copy-Item "minhook_repo\src\hde\*" "." -Force
 
           git clone --depth 1 https://github.com/TKazer/OS-ImGui.git osimgui_repo
-          Get-ChildItem -Path "osimgui_repo/OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
+          Get-ChildItem -Path "osimgui_repo\OS-ImGui" -File -Recurse | Copy-Item -Destination "." -Force
 
           $compatMacros = @"
+          #ifndef IMDRAWFLAGS_DEFINED
+          #define IMDRAWFLAGS_DEFINED
           #define ImDrawCornerFlags ImDrawFlags
           #define ImDrawCornerFlags_All ImDrawFlags_RoundCornersAll
           #define ImDrawCornerFlags_Top ImDrawFlags_RoundCornersTop
@@ -46,16 +50,18 @@ jobs:
           #define ImDrawCornerFlags_Left ImDrawFlags_RoundCornersLeft
           #define ImDrawCornerFlags_Right ImDrawFlags_RoundCornersRight
           #define ImDrawCornerFlags_None ImDrawFlags_RoundCornersNone
+          #endif
           "@
-          $imguiHeader = Get-Content "imgui/imgui.h"
-          Set-Content -Path "imgui/imgui.h" -Value ($compatMacros + "`n" + $imguiHeader)
+          $imguiHeader = Get-Content "imgui\imgui.h" -Raw
+          Set-Content -Path "imgui\imgui.h" -Value ($compatMacros + "`n" + $imguiHeader)
 
-          (Get-Content "OS-ImGui.cpp") -replace 'Window->DrawList->AddShadowRect', '// Window->DrawList->AddShadowRect' `
-                                     -replace 'Window->DrawList->AddShadowCircle', '// Window->DrawList->AddShadowCircle' `
+          (Get-Content "OS-ImGui.cpp") -replace 'Window->DrawList->AddShadowRect', '//' `
+                                     -replace 'Window->DrawList->AddShadowCircle', '//' `
                                      -replace 'ImGui::ItemHoverable\(bb, id, 0\)', 'ImGui::ItemHoverable(bb, id)' `
+                                     -replace 'ImDrawCornerFlags rounding_corners', 'ImDrawFlags rounding_corners' `
                                      | Set-Content "OS-ImGui.cpp"
 
-          Write-Host "[SUCCESS] Code surgery completed. Legacy APIs re-mapped."
+          Write-Host "[SUCCESS] Dependencies and code surgery finalized."
 
       - name: Technical Synthesis (CL Compilation)
         shell: cmd
